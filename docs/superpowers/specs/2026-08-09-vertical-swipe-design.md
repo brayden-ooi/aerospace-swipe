@@ -11,16 +11,22 @@ Add vertical swipe detection alongside the existing horizontal swipe. A swipe of
 - **Horizontal-dominant** (`|dx| > |dy|`) → existing `workspace prev/next` (unchanged).
 - **Vertical-dominant** (`|dy| > |dx|`) → new `focus up/down`.
 
-The action is sent to AeroSpace as a **command over the existing Unix socket**
-(same mechanism as horizontal), *not* as a synthesized keystroke. This mirrors the
-user's AeroSpace bindings:
+**The existing horizontal behavior is NOT changed in any way** — horizontal swipe
+remains `workspace prev/next`, exactly as the repo implements it today. This work
+only *adds* the vertical axis.
+
+The vertical action is sent to AeroSpace as a **command over the existing Unix socket**
+(same mechanism as horizontal), *not* as a synthesized keystroke. It maps to the
+user's vertical AeroSpace bindings:
 
 ```
 alt-k = 'focus up'    ← swipe up
 alt-j = 'focus down'  ← swipe down
-alt-h = 'focus left'  (horizontal already covered by workspace prev/next)
-alt-l = 'focus right'
 ```
+
+Note: `alt-h`/`alt-l` (`focus left`/`focus right`) are intentionally NOT wired to any
+swipe. The horizontal swipe axis is already used for workspace switching, so those
+stay keyboard-only and are out of scope.
 
 Finger count is shared: the same `fingers` config value gates both axes. No new
 finger-count option is introduced.
