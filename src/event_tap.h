@@ -25,7 +25,8 @@ typedef struct {
 	double y;
 	int phase;
 	double timestamp;
-	double velocity;
+	double velocity;   // x-axis velocity (unchanged meaning)
+	double velocity_y; // y-axis velocity
 	bool is_palm;
 } touch;
 
