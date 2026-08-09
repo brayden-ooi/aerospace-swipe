@@ -46,9 +46,11 @@ typedef enum {
 // Gesture context structure
 typedef struct {
 	gesture_state state;
-	float start_x, start_y, peak_velx;
+	int axis; // gesture_axis: 0=none, 1=horizontal, 2=vertical
+	float start_x, start_y, peak_velx, peak_vely;
 	int dir, last_fire_dir;
 	float prev_x[MAX_TOUCHES], base_x[MAX_TOUCHES];
+	float prev_y[MAX_TOUCHES], base_y[MAX_TOUCHES];
 } gesture_ctx;
 
 // Palm rejection tracking structure

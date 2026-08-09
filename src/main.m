@@ -4,6 +4,7 @@
 #include "config.h"
 #import "event_tap.h"
 #include "haptic.h"
+#include "gesture_axis.h"
 #include <AppKit/AppKit.h>
 #import <ApplicationServices/ApplicationServices.h>
 #include <pthread.h>
@@ -45,10 +46,25 @@ static void switch_workspace(const char* ws)
 		haptic_actuate(g_haptic, 3);
 }
 
+static void switch_focus(const char* dir)
+{
+	char* result = aerospace_focus(g_aerospace, dir);
+	if (result) {
+		fprintf(stderr, "Error: Failed to focus '%s': %s\n", dir, result);
+	} else {
+		printf("Focused '%s' successfully.\n", dir);
+	}
+	free(result);
+
+	if (g_config.haptic && g_haptic)
+		haptic_actuate(g_haptic, 3);
+}
+
 static void reset_gesture_state(gesture_ctx* ctx)
 {
 	ctx->state = GS_IDLE;
 	ctx->last_fire_dir = 0;
+	ctx->axis = AXIS_NONE;
 }
 
 static void fire_gesture(gesture_ctx* ctx, int direction)
@@ -59,23 +75,28 @@ static void fire_gesture(gesture_ctx* ctx, int direction)
 	ctx->last_fire_dir = direction;
 	ctx->state = GS_COMMITTED;
 
+	int axis = ctx->axis;
 	dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-		switch_workspace(direction > 0 ? g_config.swipe_right : g_config.swipe_left);
+		if (axis == AXIS_VERTICAL)
+			switch_focus(direction > 0 ? g_config.swipe_up : g_config.swipe_down);
+		else
+			switch_workspace(direction > 0 ? g_config.swipe_right : g_config.swipe_left);
 	});
 }
 
 static void calculate_touch_averages(touch* touches, int count,
-	float* avg_x, float* avg_y, float* avg_vel,
+	float* avg_x, float* avg_y, float* avg_vel_x, float* avg_vel_y,
 	float* min_x, float* max_x, float* min_y, float* max_y)
 {
-	*avg_x = *avg_y = *avg_vel = 0;
+	*avg_x = *avg_y = *avg_vel_x = *avg_vel_y = 0;
 	*min_x = *min_y = 1;
 	*max_x = *max_y = 0;
 
 	for (int i = 0; i < count; ++i) {
 		*avg_x += touches[i].x;
 		*avg_y += touches[i].y;
-		*avg_vel += touches[i].velocity;
+		*avg_vel_x += touches[i].velocity;
+		*avg_vel_y += touches[i].velocity_y;
 
 		if (touches[i].x < *min_x)
 			*min_x = touches[i].x;
@@ -89,7 +110,8 @@ static void calculate_touch_averages(touch* touches, int count,
 
 	*avg_x /= count;
 	*avg_y /= count;
-	*avg_vel /= count;
+	*avg_vel_x /= count;
+	*avg_vel_y /= count;
 }
 
 static bool handle_committed_state(gesture_ctx* ctx, touch* touches, int count)
@@ -107,65 +129,89 @@ static bool handle_committed_state(gesture_ctx* ctx, touch* touches, int count)
 		return true;
 	}
 
-	float avg_x, avg_y, avg_vel, min_x, max_x, min_y, max_y;
-	calculate_touch_averages(touches, count, &avg_x, &avg_y, &avg_vel,
+	float avg_x, avg_y, avg_vel_x, avg_vel_y, min_x, max_x, min_y, max_y;
+	calculate_touch_averages(touches, count, &avg_x, &avg_y, &avg_vel_x, &avg_vel_y,
 		&min_x, &max_x, &min_y, &max_y);
 
-	float dx = avg_x - ctx->start_x;
-	if ((dx * ctx->last_fire_dir) < 0 && fabsf(dx) >= g_config.min_travel) {
+	float primary_d = (ctx->axis == AXIS_VERTICAL) ? (avg_y - ctx->start_y)
+												   : (avg_x - ctx->start_x);
+	if ((primary_d * ctx->last_fire_dir) < 0 && fabsf(primary_d) >= g_config.min_travel) {
 		ctx->state = GS_ARMED;
 		ctx->start_x = avg_x;
 		ctx->start_y = avg_y;
-		ctx->peak_velx = avg_vel;
-		ctx->dir = (avg_vel >= 0) ? 1 : -1;
+		ctx->peak_velx = avg_vel_x;
+		ctx->peak_vely = avg_vel_y;
+		ctx->dir = (primary_d >= 0) ? 1 : -1;
 
-		for (int i = 0; i < count; ++i)
+		for (int i = 0; i < count; ++i) {
 			ctx->base_x[i] = touches[i].x;
+			ctx->base_y[i] = touches[i].y;
+		}
 	}
 
 	return true;
 }
 
 static void handle_idle_state(gesture_ctx* ctx, touch* touches, int count,
-	float avg_x, float avg_y, float avg_vel)
+	float avg_x, float avg_y, float avg_vel_x, float avg_vel_y)
 {
-	bool fast = fabsf(avg_vel) >= g_config.velocity_pct * FAST_VEL_FACTOR;
+	bool fast = fabsf(avg_vel_x) >= g_config.velocity_pct * FAST_VEL_FACTOR ||
+		fabsf(avg_vel_y) >= g_config.velocity_pct * FAST_VEL_FACTOR;
 	float need = fast ? g_config.min_travel_fast : g_config.min_travel;
 
 	bool moved = true;
-	for (int i = 0; i < count && moved; ++i)
-		moved &= fabsf(touches[i].x - ctx->base_x[i]) >= need;
+	for (int i = 0; i < count && moved; ++i) {
+		float mdx = fabsf(touches[i].x - ctx->base_x[i]);
+		float mdy = fabsf(touches[i].y - ctx->base_y[i]);
+		moved &= (mdx >= need || mdy >= need);
+	}
+	if (!moved)
+		return;
 
 	float dx = avg_x - ctx->start_x;
 	float dy = avg_y - ctx->start_y;
 
-	if (moved && (fast || (fabsf(dx) >= ACTIVATE_PCT && fabsf(dx) > fabsf(dy)))) {
-		ctx->state = GS_ARMED;
-		ctx->start_x = avg_x;
-		ctx->start_y = avg_y;
-		ctx->peak_velx = avg_vel;
-		ctx->dir = (avg_vel >= 0) ? 1 : -1;
-	}
+	gesture_axis axis = decide_axis(dx, dy, fast, ACTIVATE_PCT);
+	if (axis == AXIS_NONE)
+		return;
+
+	ctx->state = GS_ARMED;
+	ctx->axis = axis;
+	ctx->start_x = avg_x;
+	ctx->start_y = avg_y;
+	ctx->peak_velx = avg_vel_x;
+	ctx->peak_vely = avg_vel_y;
+	ctx->dir = (axis == AXIS_VERTICAL)
+		? ((avg_vel_y >= 0) ? 1 : -1)
+		: ((avg_vel_x >= 0) ? 1 : -1);
 }
 
 static void handle_armed_state(gesture_ctx* ctx, touch* touches, int count,
-	float avg_x, float avg_y, float avg_vel)
+	float avg_x, float avg_y, float avg_vel_x, float avg_vel_y)
 {
 	float dx = avg_x - ctx->start_x;
 	float dy = avg_y - ctx->start_y;
 
-	if (fabsf(dy) > fabsf(dx)) {
+	bool vertical = (ctx->axis == AXIS_VERTICAL);
+	float primary_d = vertical ? dy : dx;
+	float cross_d = vertical ? dx : dy;
+	float primary_vel = vertical ? avg_vel_y : avg_vel_x;
+	float peak_vel = vertical ? ctx->peak_vely : ctx->peak_velx;
+
+	// If the cross axis overtakes the committed axis, abandon the gesture.
+	if (fabsf(cross_d) > fabsf(primary_d)) {
 		reset_gesture_state(ctx);
 		return;
 	}
 
-	bool fast = fabsf(avg_vel) >= g_config.velocity_pct * FAST_VEL_FACTOR;
+	bool fast = fabsf(primary_vel) >= g_config.velocity_pct * FAST_VEL_FACTOR;
 	float stepReq = fast ? g_config.min_step_fast : g_config.min_step;
 
 	int mismatch_count = 0;
 	for (int i = 0; i < count; ++i) {
-		float ddx = touches[i].x - ctx->prev_x[i];
-		if (fabsf(ddx) < stepReq || (ddx * dx) < 0) {
+		float step = vertical ? (touches[i].y - ctx->prev_y[i])
+							  : (touches[i].x - ctx->prev_x[i]);
+		if (fabsf(step) < stepReq || (step * primary_d) < 0) {
 			mismatch_count++;
 			if (mismatch_count > g_config.swipe_tolerance) {
 				reset_gesture_state(ctx);
@@ -174,15 +220,18 @@ static void handle_armed_state(gesture_ctx* ctx, touch* touches, int count,
 		}
 	}
 
-	if (fabsf(avg_vel) > fabsf(ctx->peak_velx)) {
-		ctx->peak_velx = avg_vel;
-		ctx->dir = (avg_vel >= 0) ? 1 : -1;
+	if (fabsf(primary_vel) > fabsf(peak_vel)) {
+		if (vertical)
+			ctx->peak_vely = primary_vel;
+		else
+			ctx->peak_velx = primary_vel;
+		ctx->dir = (primary_vel >= 0) ? 1 : -1;
 	}
 
-	if (fabsf(avg_vel) >= g_config.velocity_pct) {
-		fire_gesture(ctx, avg_vel > 0 ? 1 : -1);
-	} else if (fabsf(dx) >= g_config.distance_pct && fabsf(avg_vel) <= g_config.velocity_pct * g_config.settle_factor) {
-		fire_gesture(ctx, dx > 0 ? 1 : -1);
+	if (fabsf(primary_vel) >= g_config.velocity_pct) {
+		fire_gesture(ctx, primary_vel > 0 ? 1 : -1);
+	} else if (fabsf(primary_d) >= g_config.distance_pct && fabsf(primary_vel) <= g_config.velocity_pct * g_config.settle_factor) {
+		fire_gesture(ctx, primary_d > 0 ? 1 : -1);
 	}
 }
 
@@ -201,26 +250,31 @@ static void gestureCallback(touch* touches, int count)
 		if (ctx->state == GS_ARMED)
 			ctx->state = GS_IDLE;
 
-		for (int i = 0; i < count; ++i)
+		for (int i = 0; i < count; ++i) {
 			ctx->prev_x[i] = ctx->base_x[i] = touches[i].x;
+			ctx->prev_y[i] = ctx->base_y[i] = touches[i].y;
+		}
 
 		goto unlock;
 	}
 
-	float avg_x, avg_y, avg_vel, min_x, max_x, min_y, max_y;
-	calculate_touch_averages(touches, count, &avg_x, &avg_y, &avg_vel,
+	float avg_x, avg_y, avg_vel_x, avg_vel_y, min_x, max_x, min_y, max_y;
+	calculate_touch_averages(touches, count, &avg_x, &avg_y, &avg_vel_x, &avg_vel_y,
 		&min_x, &max_x, &min_y, &max_y);
 
 	if (ctx->state == GS_IDLE) {
-		handle_idle_state(ctx, touches, count, avg_x, avg_y, avg_vel);
+		handle_idle_state(ctx, touches, count, avg_x, avg_y, avg_vel_x, avg_vel_y);
 	} else if (ctx->state == GS_ARMED) {
-		handle_armed_state(ctx, touches, count, avg_x, avg_y, avg_vel);
+		handle_armed_state(ctx, touches, count, avg_x, avg_y, avg_vel_x, avg_vel_y);
 	}
 
 	for (int i = 0; i < count; ++i) {
 		ctx->prev_x[i] = touches[i].x;
-		if (ctx->state == GS_IDLE)
+		ctx->prev_y[i] = touches[i].y;
+		if (ctx->state == GS_IDLE) {
 			ctx->base_x[i] = touches[i].x;
+			ctx->base_y[i] = touches[i].y;
+		}
 	}
 
 unlock:
