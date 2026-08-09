@@ -8,7 +8,7 @@ LAUNCH_AGENTS_DIR = $(HOME)/Library/LaunchAgents
 PLIST_FILE = com.acsandmann.swipe.plist
 PLIST_TEMPLATE = com.acsandmann.swipe.plist.in
 
-SRC_FILES = src/aerospace.c src/yyjson.c src/haptic.c src/event_tap.m src/main.m
+SRC_FILES = src/aerospace.c src/yyjson.c src/haptic.c src/gesture_axis.c src/event_tap.m src/main.m
 
 BINARY = swipe
 BINARY_NAME = AerospaceSwipe
@@ -19,7 +19,7 @@ INFO_PLIST = $(APP_CONTENTS)/Info.plist
 
 ABS_TARGET_PATH = $(shell pwd)/$(APP_MACOS)/$(BINARY_NAME)
 
-.PHONY: all clean sign install_plist load_plist uninstall_plist install uninstall
+.PHONY: all clean sign install_plist load_plist uninstall_plist install uninstall test
 
 ifeq ($(shell uname -sm),Darwin arm64)
 	ARCH= -arch arm64
@@ -91,6 +91,10 @@ restart: unload_plist load_plist
 
 format:
 	clang-format -i -- **/**.c **/**.h **/**.m
+
+test:
+	$(CC) -std=c99 -O0 -g -Wall -Wextra -o /tmp/test_gesture_axis src/gesture_axis.c tests/test_gesture_axis.c
+	/tmp/test_gesture_axis
 
 clean:
 	rm -rf $(TARGET) $(APP_BUNDLE)
