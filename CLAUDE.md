@@ -9,8 +9,42 @@ This is a **fork** of the upstream project. Git remotes are wired as:
 
 So:
 - `git push` goes to **our fork** (`origin`), not the upstream.
-- To sync with the original author: `git fetch upstream && git merge upstream/main` (or rebase).
-- Open PRs against `brayden-ooi/aerospace-swipe` unless explicitly contributing back upstream.
+- We do **not** intend to contribute changes back upstream. `upstream` is pull-only.
+
+## Git flow (branching model — IMPORTANT for future agents)
+
+This fork accumulates personal customizations. The branches have distinct roles:
+
+- **`main`** — a clean mirror of `upstream/main`. NEVER commit to it directly.
+  Only fast-forward it from upstream, then push to `origin/main`:
+  ```bash
+  git fetch upstream
+  git checkout main && git merge --ff-only upstream/main && git push origin main
+  ```
+- **`local`** — the daily-driver / permanently-divergent branch. This is what
+  gets checked out and built (`make install` / `make restart` build whatever is
+  checked out). It is the **aggregation** of `main` + every feature/customization.
+  Never rebase it (it's long-lived and drives the launch agent); always **merge**.
+  `local` is never pushed anywhere for upstreaming — it's ours.
+- **`feat/*` (and other customization branches)** — every change starts on its own
+  branch cut **from `main`**, not from `local`. Keeps each change isolated and
+  reviewable.
+
+Integration rule — **everything reaches `local` via a PR/merge, never direct commits**:
+- A finished `feat/*` branch → merge into `local`.
+- When `main` is updated from upstream → merge `main` into `local` too (via PR).
+
+```
+upstream/main ──► main (mirror, ff-only, pushed to origin/main)
+                   ├── feat/vertical-swipe ──┐
+                   ├── feat/next-thing      ─┤   (each cut from main)
+                   └───────────► local ◄─────┘   (daily driver = main + all features)
+```
+
+Practical notes:
+- Start new work: `git checkout main && git checkout -b feat/<name>`.
+- Ship it: open a PR merging `feat/<name>` → `local` (on `origin`), then merge.
+- Purely personal tweaks too small for a branch may be committed on `local` directly.
 
 ## Active work
 
