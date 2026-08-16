@@ -8,6 +8,10 @@ beneath each key you will find its `type` and `default value`. thresholds expres
 
 reverses logical direction so a physical swipe **right** moves **forward** instead of back.
 
+### vertical swipes
+
+a vertical x-fingered swipe (same `fingers` count) sends aerospace `focus up` / `focus down` instead of switching workspaces. `natural_swipe` inverts the vertical mapping the same way it inverts horizontal: with `natural_swipe = true`, swipe up → `focus up`; with `natural_swipe = false`, swipe up → `focus down`.
+
 ### `wrap_around` · *bool* · default **true**
 
 allows cycling from the last workspace directly to the first (and vice‑versa).

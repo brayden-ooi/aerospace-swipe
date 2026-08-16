@@ -457,6 +457,12 @@ char* aerospace_switch(aerospace* client, const char* direction)
 	return aerospace_workspace(client, 0, direction, "");
 }
 
+char* aerospace_focus(aerospace* client, const char* direction)
+{
+	const char* args[2] = { "focus", direction };
+	return execute_aerospace_command(client, args, 2, "", NULL);
+}
+
 char* aerospace_workspace(aerospace* client, int wrap_around, const char* ws_command,
 	const char* stdin_payload)
 {

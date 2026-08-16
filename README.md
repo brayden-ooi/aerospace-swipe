@@ -10,6 +10,7 @@ aerospace-swipe detects x-fingered(defaults to 3) swipes on your trackpad and co
 - haptics on swipe (this is off by default)
 - customizable swipe directions (natural or inverted)
 - swipe will wrap around workspaces (ex 1-9 workspaces, swipe right from 9 will go to 1)
+- vertical swipe support: a vertical x-fingered swipe changes window focus (aerospace `focus up`/`focus down`) while horizontal swipes still switch workspaces
 - utilizes [yyjson](https://github.com/ibireme/yyjson) for performant json ser/de
 
 ## configuration

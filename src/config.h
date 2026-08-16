@@ -28,6 +28,8 @@ typedef struct {
 	float palm_velocity;
 	const char* swipe_left;
 	const char* swipe_right;
+	const char* swipe_up;
+	const char* swipe_down;
 } Config;
 
 static Config default_config()
@@ -51,6 +53,8 @@ static Config default_config()
 	config.palm_velocity = 0.1; // 10% of pad dimension per second
 	config.swipe_left = "prev";
 	config.swipe_right = "next";
+	config.swipe_up = "up";
+	config.swipe_down = "down";
 	return config;
 }
 
@@ -155,6 +159,8 @@ static Config load_config()
 
 	config.swipe_left = config.natural_swipe ? "next" : "prev";
 	config.swipe_right = config.natural_swipe ? "prev" : "next";
+	config.swipe_up = config.natural_swipe ? "up" : "down";
+	config.swipe_down = config.natural_swipe ? "down" : "up";
 
 	yyjson_doc_free(doc);
 	return config;
